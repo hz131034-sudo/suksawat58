@@ -10,17 +10,27 @@
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex flex-col justify-center items-center p-4">
 
+  <!-- แถบซับไตเติ้ลแสดงคำพูดระบบ -->
+  <div id="voiceBanner" class="fixed top-4 left-4 right-4 max-w-md mx-auto bg-amber-500 text-slate-900 font-bold px-4 py-2 rounded-xl shadow-xl border border-amber-300 text-xs flex items-center justify-between transition-all duration-300 opacity-0 pointer-events-none z-50">
+    <div class="flex items-center gap-2">
+      <span class="animate-bounce text-base">🔊</span>
+      <span id="voiceText">กำลังเล่นเสียง...</span>
+    </div>
+  </div>
+
   <div id="app" class="w-full max-w-md bg-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-700"></div>
 
   <script>
     let players = [];
     let currentRevealIndex = 0;
-    let gameState = 'setup'; // setup, reveal, night_intro, night_wolf, night_seer, night_doctor, night_waiting, day, game_over
+    let gameState = 'setup'; // setup, reveal, pre_night, night_intro, night_wolf, night_seer, night_doctor, night_waiting, day, game_over
     let timer = null;
     let timeLeft = 120;
+    let preNightTimeLeft = 120;
     let nightAction = { wolfTarget: null, doctorSave: null, seerCheck: null };
     let nightLog = "";
     let transitionTimer = 5;
+    let isAudioUnlocked = false;
 
     const availableRoles = [
       { id: 'wolf1', name: 'หมาป่า', icon: '🐺', desc: 'เลือกเหยื่อที่จะกำจัดในตอนกลางคืน' },
@@ -33,22 +43,104 @@
       { id: 'v4', name: 'ชาวบ้าน', icon: '👨‍🌾', desc: 'ตามหาและโหวตกำจัดหมาป่าในตอนกลางวัน' }
     ];
 
-    // ระบบพูดภาษาไทยผ่านมือถือ
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
+
+    function unlockAudio() {
+      if (!isAudioUnlocked) {
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          ctx.resume();
+        } catch(e) {}
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.resume();
+        }
+        isAudioUnlocked = true;
+      }
+    }
+
+    function showVoiceBanner(text) {
+      const banner = document.getElementById('voiceBanner');
+      const voiceText = document.getElementById('voiceText');
+      if (banner && voiceText) {
+        voiceText.innerText = text;
+        banner.classList.remove('opacity-0', 'pointer-events-none');
+        banner.classList.add('opacity-100');
+      }
+    }
+
+    function hideVoiceBanner() {
+      const banner = document.getElementById('voiceBanner');
+      if (banner) {
+        banner.classList.remove('opacity-100');
+        banner.classList.add('opacity-0', 'pointer-events-none');
+      }
+    }
+
+    // ระบบพูดภาษาไทย (Web Speech API + Google TTS Fallback)
     function speakText(text, callback) {
+      unlockAudio();
+      showVoiceBanner(text);
+
+      let called = false;
+      const finish = () => {
+        if (!called) {
+          called = true;
+          hideVoiceBanner();
+          if (callback) callback();
+        }
+      };
+
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'th-TH';
-        utterance.rate = 0.9;
-        if (callback) utterance.onend = callback;
-        window.speechSynthesis.speak(utterance);
-      } else {
+        try {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = 'th-TH';
+          utterance.rate = 0.85;
+
+          const voices = window.speechSynthesis.getVoices();
+          const thaiVoice = voices.find(v => v.lang.includes('th') || v.lang.includes('TH'));
+          if (thaiVoice) utterance.voice = thaiVoice;
+
+          utterance.onend = finish;
+          utterance.onerror = () => {
+            playGoogleTTS(text, finish);
+          };
+
+          window.speechSynthesis.speak(utterance);
+
+          setTimeout(() => {
+            if (!called) finish();
+          }, 4500);
+
+          return;
+        } catch(e) {
+          console.warn('SpeechSynthesis error:', e);
+        }
+      }
+
+      playGoogleTTS(text, finish);
+    }
+
+    function playGoogleTTS(text, callback) {
+      try {
+        const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=th&client=tw-ob&q=${encodeURIComponent(text)}`;
+        const audio = new Audio(url);
+        audio.onended = () => { if (callback) callback(); };
+        audio.onerror = () => { if (callback) callback(); };
+        audio.play().catch(() => {
+          if (callback) callback();
+        });
+      } catch(e) {
         if (callback) callback();
       }
     }
 
-    // เสียงกระดิ่ง/สัญญาณ
     function playAudioEffect(type) {
+      unlockAudio();
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         if (type === 'morning') {
@@ -75,6 +167,10 @@
       } catch(e) {}
     }
 
+    function testVoice() {
+      speakText('ทดสอบระบบเสียงพูดภาษาไทย ได้ยินเสียงนี้แสดงว่าระบบพร้อมใช้งานครับ');
+    }
+
     function render() {
       const app = document.getElementById('app');
       
@@ -82,8 +178,12 @@
       if (gameState === 'setup') {
         app.innerHTML = `
           <h1 class="text-2xl font-bold text-center text-amber-400 mb-1">🐺 เกมหมาป่าระบบเสียงภาษาไทย</h1>
-          <p class="text-xs text-slate-400 text-center mb-5">เพิ่มผู้เล่นแล้วกดเริ่มเกมได้เลย</p>
+          <p class="text-xs text-slate-400 text-center mb-4">เพิ่มผู้เล่น แล้วกดทดสอบเสียงก่อนเริ่มเกมได้เลย</p>
           
+          <button onclick="testVoice()" class="w-full py-2 bg-indigo-600/80 hover:bg-indigo-600 text-indigo-100 font-bold rounded-xl text-xs mb-4 border border-indigo-400/40 flex items-center justify-center gap-2 shadow-md">
+            🔊 กดเพื่อทดสอบเสียงพูดภาษาไทย
+          </button>
+
           <div class="flex gap-2 mb-4">
             <input id="nameInput" type="text" placeholder="พิมพ์ชื่อผู้เล่น..." class="flex-1 px-4 py-2 bg-slate-700 border border-slate-600 rounded-xl text-white text-sm">
             <button onclick="addPlayer()" class="bg-amber-500 hover:bg-amber-600 font-bold px-4 py-2 rounded-xl text-slate-900 text-sm">+ เพิ่ม</button>
@@ -99,7 +199,7 @@
             `).join('')}
           </div>
 
-          <button onclick="startGame()" ${players.length < 4 ? 'disabled' : ''} class="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 font-bold rounded-xl text-slate-900 text-sm">
+          <button onclick="startGame()" ${players.length < 4 ? 'disabled' : ''} class="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 font-bold rounded-xl text-slate-900 text-sm shadow-lg">
             🎮 เริ่มสุ่มแจกบทบาท (${players.length} คน)
           </button>
         `;
@@ -119,10 +219,36 @@
             </div>
 
             <div id="actionArea">
-              <button onclick="revealRole()" class="w-full py-3 bg-amber-500 font-bold rounded-xl text-slate-900 text-sm">
+              <button onclick="revealRole()" class="w-full py-3 bg-amber-500 font-bold rounded-xl text-slate-900 text-sm shadow-lg">
                 👁️ กดเพื่อแอบดูบทบาท
               </button>
             </div>
+          </div>
+        `;
+      }
+
+      // 2.5 หน้าพูดคุยก่อนเข้าสู่กลางคืน (Pre-Night Discussion)
+      else if (gameState === 'pre_night') {
+        app.innerHTML = `
+          <div class="text-center space-y-4">
+            <div class="inline-block px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 font-bold text-xs">
+              🗣️ เฟสพูดคุยก่อนเริ่มคืนแรก
+            </div>
+            <h2 class="text-xl font-bold text-amber-400">พูดคุย & แนะนำตัว</h2>
+            <p class="text-xs text-slate-300 bg-slate-700/50 p-3 rounded-xl border border-slate-600 leading-relaxed">
+              แจกบทบาทครบทุกคนแล้ว! <br><b class="text-amber-300">ให้ทุกคนพูดคุย ทักทาย หรือวางแผนกันก่อน</b>ที่จะเริ่มเข้าสู่ช่วงกลางคืนคืนแรก
+            </p>
+
+            <h1 class="text-4xl font-extrabold text-white my-2">${Math.floor(preNightTimeLeft / 60)}:${(preNightTimeLeft % 60).toString().padStart(2, '0')}</h1>
+
+            <div class="flex justify-center gap-2">
+              <button onclick="togglePreNightTimer()" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg">▶️/⏸️ จับเวลา</button>
+              <button onclick="resetPreNightTimer()" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 rounded-lg">🔄 รีเซ็ต</button>
+            </div>
+
+            <button onclick="startNightPhase()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 font-bold rounded-xl text-white text-sm shadow-lg mt-4">
+              🌙 พร้อมแล้ว เข้าสู่ช่วงกลางคืน
+            </button>
           </div>
         `;
       }
@@ -135,9 +261,9 @@
             <h2 class="text-xl font-bold text-indigo-400">เข้าสู่ช่วงกลางคืน</h2>
             <p class="text-sm text-slate-300 leading-relaxed bg-slate-700/50 p-4 rounded-xl border border-slate-600">
               🔊 <b class="text-amber-400">วางมือถือไว้ตรงกลาง แล้วกดเริ่ม</b><br>
-              ระบบจะเปิดเสียงพูดขานเรียกบทบาทให้เอง
+              ระบบจะเปิดเสียงพูดสั่งหลับตาและขานเรียกบทบาทให้อัตโนมัติ
             </p>
-            <button onclick="startNightSequence()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 font-bold rounded-xl text-white text-sm">
+            <button onclick="startNightSequence()" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 font-bold rounded-xl text-white text-sm shadow-lg">
               ▶️ เริ่มสั่งหลับตา & ขานบทบาท
             </button>
           </div>
@@ -146,7 +272,6 @@
 
       // 4. หมาป่าเลือกเหยื่อ
       else if (gameState === 'night_wolf') {
-        const aliveWolves = players.filter(p => p.alive && p.role.name === 'หมาป่า');
         const aliveTargets = players.filter(p => p.alive && p.role.name !== 'หมาป่า');
         app.innerHTML = `
           <div class="space-y-4">
@@ -163,14 +288,14 @@
         `;
       }
 
-      // 5. หน้าพักรอ 5 วินาทีสลับบทบาท (หน่วงเวลา + เสียงขาน)
+      // 5. หน้าพักรอ 5 วินาทีสลับบทบาท
       else if (gameState === 'night_waiting') {
         app.innerHTML = `
           <div class="text-center space-y-4 py-8">
             <div class="text-4xl animate-pulse">⏳</div>
             <h2 class="text-lg font-bold text-amber-400">กำลังสลับบทบาท...</h2>
             <p class="text-xs text-slate-400">หลับตาแล้ววางมือถือไว้ที่เดิม (${transitionTimer} วินาที)</p>
-            <div class="text-3xl font-extrabold text-white">${transitionTimer}</div>
+            <div class="text-4xl font-extrabold text-white">${transitionTimer}</div>
           </div>
         `;
       }
@@ -179,7 +304,6 @@
       else if (gameState === 'night_seer') {
         const aliveSeer = players.find(p => p.role.name === 'ผู้ทำนาย' && p.alive);
         if (!aliveSeer) {
-          // ถ้าตายให้ข้ามอัตโนมัติด้วยเวลาพักเท่ากัน
           startTransition('night_doctor', 'ผู้ทำนาย หลับตาลง... หมอ ตื่นขึ้นมาคุ้มกัน');
           return;
         }
@@ -296,7 +420,6 @@
       }
     }
 
-    // ฟังก์ชันการทำงาน
     function addPlayer() {
       const input = document.getElementById('nameInput');
       if (input.value.trim()) {
@@ -307,6 +430,7 @@
     function removePlayer(i) { players.splice(i, 1); render(); }
 
     function startGame() {
+      unlockAudio();
       const shuffled = [...availableRoles].sort(() => Math.random() - 0.5);
       players.forEach((p, i) => { p.role = shuffled[i % shuffled.length]; p.alive = true; });
       currentRevealIndex = 0; gameState = 'reveal'; render();
@@ -329,8 +453,36 @@
     function nextPlayer() {
       currentRevealIndex++;
       if (currentRevealIndex >= players.length) {
-        startNightPhase();
+        startPreNightPhase();
       } else { render(); }
+    }
+
+    function startPreNightPhase() {
+      gameState = 'pre_night';
+      preNightTimeLeft = 120;
+      render();
+      speakText('แจกบทบาทเสร็จสิ้นแล้ว เชิญทุกคนพูดคุยทักทายกันก่อนเข้าสู่ช่วงกลางคืนครับ');
+    }
+
+    function togglePreNightTimer() {
+      playAudioEffect('beep');
+      if (timer) { clearInterval(timer); timer = null; }
+      else {
+        timer = setInterval(() => {
+          if (preNightTimeLeft > 0) {
+            preNightTimeLeft--;
+            if (preNightTimeLeft === 0) {
+              playAudioEffect('morning');
+              speakText('หมดเวลาพูดคุยแล้วครับ พร้อมเข้าสู่ช่วงกลางคืน');
+            }
+            render();
+          }
+        }, 1000);
+      }
+    }
+
+    function resetPreNightTimer() {
+      if (timer) clearInterval(timer); timer = null; preNightTimeLeft = 120; render();
     }
 
     function startNightPhase() {
@@ -366,7 +518,6 @@
       startTransition('day', 'หมอ หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!');
     }
 
-    // ฟังก์ชันจัดการถอยหลัง 5 วินาที + พูดขานบทบาท
     function startTransition(nextState, speechMessage) {
       gameState = 'night_waiting';
       transitionTimer = 5;
@@ -422,7 +573,7 @@
       }
     }
 
-    function resetTimer() { if (timer) clearInterval(timer); timer = null; timeLeft = 120; }
+    function resetTimer() { if (timer) clearInterval(timer); timer = null; timeLeft = 120; render(); }
     
     function voteKill(i) {
       playAudioEffect('beep');
