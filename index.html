@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Werewolf Mobile Game - Online Thai TTS Edition</title>
+  <title>Werewolf Mobile Game - Native Thai Voice Edition</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
   <style> 
@@ -36,7 +36,8 @@
 
     let audioCtx = null;
     let bannerTimeout = null;
-    let currentSpeechAudio = null;
+    let speechUnlocked = false;
+    let thaiVoice = null;
 
     const availableRoles = [
       { id: 'wolf1', name: 'หมาป่า', icon: '🐺', desc: 'เลือกเหยื่อที่จะกำจัดในตอนกลางคืน' },
@@ -49,7 +50,22 @@
       { id: 'v4', name: 'ชาวบ้าน', icon: '👨‍🌾', desc: 'ตามหาและโหวตกำจัดหมาป่าในตอนกลางวัน' }
     ];
 
-    // ปลดล็อกระบบเสียงบนมือถือ
+    // โหลดรายชื่อเสียงพูดในเครื่อง
+    function loadVoices() {
+      if ('speechSynthesis' in window) {
+        const voices = window.speechSynthesis.getVoices();
+        thaiVoice = voices.find(v => v.lang.includes('th') || v.lang.includes('TH') || v.name.includes('Thai') || v.name.includes('Kanya') || v.name.includes('Narisa'));
+      }
+    }
+
+    if ('speechSynthesis' in window) {
+      loadVoices();
+      if (window.speechSynthesis.onvoiceschanged !== undefined) {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+    }
+
+    // ปลดล็อกระบบเสียงของมือถือทันทีเมื่อมีการแตะสัมผัสหน้าจอ
     function initAudio() {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -57,9 +73,20 @@
       if (audioCtx.state === 'suspended') {
         audioCtx.resume();
       }
+
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.resume();
+        if (!speechUnlocked) {
+          const dummy = new SpeechSynthesisUtterance(' ');
+          dummy.volume = 0.01;
+          dummy.rate = 10;
+          window.speechSynthesis.speak(dummy);
+          speechUnlocked = true;
+        }
+      }
     }
 
-    // เสียงกระดิ่งแจ้งเตือน
+    // เสียงกระดิ่งสัญญาณ
     function playChime(type) {
       initAudio();
       try {
@@ -143,62 +170,53 @@
       }
     }
 
-    // 🔊 ระบบพูดภาษาไทยออนไลน์ (Google TTS Voice Engine - ได้ยินเสียง 100%)
-    function speakThaiVoice(text, onEndCallback) {
-      if (currentSpeechAudio) {
-        currentSpeechAudio.pause();
-        currentSpeechAudio = null;
-      }
-
-      // เล่นเสียงผ่าน Google Voice Online
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=th&client=tw-ob&q=${encodeURIComponent(text)}`;
-      const audio = new Audio(url);
-      currentSpeechAudio = audio;
-
-      let called = false;
-      const done = () => {
-        if (!called) {
-          called = true;
-          if (onEndCallback) onEndCallback();
-        }
-      };
-
-      audio.onended = done;
-      audio.onerror = () => {
-        // สำรองกรณีออฟไลน์ ใช้ Web Speech API
-        try {
-          window.speechSynthesis.cancel();
-          const u = new SpeechSynthesisUtterance(text);
-          u.lang = 'th-TH';
-          u.onend = done;
-          u.onerror = done;
-          window.speechSynthesis.speak(u);
-        } catch(e) { done(); }
-      };
-
-      audio.play().catch(err => {
-        console.log("Audio play error, fallback to fallback timer");
-        setTimeout(done, 3000);
-      });
-
-      // ป้องกันเกมค้างกรณีโหลดเสียงนานเกินไป
-      setTimeout(done, 7000);
-    }
-
-    // ประกาศคำสั่งเกม (ส่งเสียงกระดิ่ง + เสียงพูดคนไทย + กรอบเหลือง)
+    // ประกาศคำสั่งเกม (ส่งเสียงกระดิ่ง + เสียงพูดภาษาไทย)
     function announceCommand(text, chimeType, callback) {
       initAudio();
       showVoiceBanner(text, 8000);
       playChime(chimeType);
 
-      // รอเสียงกระดิ่งเล่น 0.4 วินาทีแล้วพูดคำสั่ง
-      setTimeout(() => {
-        speakThaiVoice(text, callback);
-      }, 400);
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.resume();
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'th-TH';
+        utterance.rate = 0.85;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+
+        if (!thaiVoice) loadVoices();
+        if (thaiVoice) utterance.voice = thaiVoice;
+
+        let handled = false;
+        const finish = () => {
+          if (!handled) {
+            handled = true;
+            if (callback) callback();
+          }
+        };
+
+        utterance.onend = finish;
+        utterance.onerror = (e) => {
+          console.warn("Speech error:", e);
+          finish();
+        };
+
+        window.speechSynthesis.speak(utterance);
+
+        setTimeout(finish, 5000);
+      } else {
+        setTimeout(() => { if (callback) callback(); }, 2000);
+      }
     }
 
     function testVoice() {
       announceCommand('ทดสอบเสียงพูดภาษาไทยครับ ได้ยินเสียงชัดเจนไหมครับ', 'morning');
+    }
+
+    function showGuide() {
+      alert("💡 วิธีตั้งค่าให้มือถือมีเสียงพูดภาษาไทย 100%:\n\niPhone / iPad:\n1. ไปที่ Settings (ตั้งค่า) > Accessibility (การเข้าถึง)\n2. เลือก Spoken Content (เนื้อหาอ่านได้) > Voices (เสียง)\n3. เลือก Thai (ไทย) แล้วกดโหลดเสียง 'Kanya' หรือ 'Narisa'\n\nAndroid:\n1. ไปที่ Settings (ตั้งค่า) > System (ระบบ)\n2. เลือก Language & Input (ภาษาและการป้อนข้อมูล) > Text-to-speech output\n3. เลือก Google Speech Services แล้วตั้งเป็นภาษาไทยครับ");
     }
 
     function render() {
@@ -208,10 +226,14 @@
       if (gameState === 'setup') {
         app.innerHTML = `
           <h1 class="text-2xl font-bold text-center text-amber-400 mb-1">🐺 เกมหมาป่าระบบเสียงภาษาไทย</h1>
-          <p class="text-xs text-slate-400 text-center mb-4">เพิ่มผู้เล่น แล้วกดทดสอบเสียงพูดได้เลย</p>
+          <p class="text-xs text-slate-400 text-center mb-3">เพิ่มผู้เล่น แล้วกดทดสอบเสียงพูดได้เลย</p>
 
-          <button onclick="testVoice()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold rounded-xl text-xs mb-4 shadow-lg flex items-center justify-center gap-2 animate-pulse">
+          <button onclick="testVoice()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold rounded-xl text-xs mb-2 shadow-lg flex items-center justify-center gap-2 animate-pulse">
             🔊 กดเพื่อทดสอบเสียงพูดภาษาไทย
+          </button>
+
+          <button onclick="showGuide()" class="w-full py-1.5 text-[11px] text-slate-400 hover:text-amber-300 underline text-center mb-4 block">
+            ❓ ถ้ากดแล้วยังไม่มีเสียงพูด ทำอย่างไร? (คลิกดูวิธีตั้งค่า)
           </button>
 
           <div class="flex gap-2 mb-4">
@@ -451,13 +473,14 @@
     }
 
     function addPlayer() {
+      initAudio();
       const input = document.getElementById('nameInput');
       if (input.value.trim()) {
         players.push({ name: input.value.trim(), role: null, alive: true });
         input.value = ''; render();
       }
     }
-    function removePlayer(i) { players.splice(i, 1); render(); }
+    function removePlayer(i) { initAudio(); players.splice(i, 1); render(); }
 
     function startGame() {
       initAudio();
@@ -467,6 +490,7 @@
     }
 
     function revealRole() {
+      initAudio();
       const p = players[currentRevealIndex];
       document.getElementById('secretCard').innerHTML = `
         <div class="text-4xl mb-1">${p.role.icon}</div>
@@ -481,6 +505,7 @@
     }
 
     function nextPlayer() {
+      initAudio();
       currentRevealIndex++;
       if (currentRevealIndex >= players.length) {
         startPreNightPhase();
@@ -515,6 +540,7 @@
     }
 
     function startNightPhase() {
+      initAudio();
       if (timer) clearInterval(timer); timer = null;
       nightAction = { wolfTarget: null, doctorSave: null, seerCheck: null };
       gameState = 'night_intro'; render();
