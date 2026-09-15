@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Werewolf Mobile Game - Native Thai Voice Edition</title>
+  <title>Werewolf Mobile Game - Balanced Deck Edition</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
   <style> 
@@ -12,7 +12,7 @@
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex flex-col justify-center items-center p-4">
 
-  <!-- แถบป้ายข้อความแจ้งเตือนภาษาไทย (ลอยค้าง 8 วินาที) -->
+  <!-- แถบป้ายข้อความแจ้งเตือนภาษาไทย -->
   <div id="voiceBanner" class="fixed top-3 left-3 right-3 max-w-md mx-auto bg-amber-400 text-slate-900 font-bold p-3 rounded-2xl shadow-2xl border-2 border-amber-200 text-xs flex items-center justify-between transition-all duration-300 opacity-0 -translate-y-4 pointer-events-none z-50">
     <div class="flex items-center gap-2.5 flex-1 pr-2">
       <span class="text-xl animate-bounce">🗣️</span>
@@ -21,16 +21,19 @@
     <button onclick="hideVoiceBanner()" class="bg-slate-900/20 hover:bg-slate-900/40 text-slate-900 px-2 py-1 rounded-lg text-[10px] font-extrabold">✕ ปิด</button>
   </div>
 
-  <div id="app" class="w-full max-w-md bg-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-700"></div>
+  <div id="app" class="w-full max-w-md bg-slate-800 rounded-2xl p-6 shadow-2xl border border-slate-700 my-4"></div>
 
   <script>
     let players = [];
     let currentRevealIndex = 0;
-    let gameState = 'setup'; // setup, reveal, pre_night, night_intro, night_wolf, night_seer, night_doctor, night_waiting, day, game_over
+    let gameState = 'setup'; // setup, reveal, pre_night, night_intro, night_wolf, night_seer, night_doctor, night_witch, night_waiting, day, game_over
     let timer = null;
     let timeLeft = 120;
     let preNightTimeLeft = 120;
-    let nightAction = { wolfTarget: null, doctorSave: null, seerCheck: null };
+    let nightAction = { wolfTarget: null, doctorSave: null, seerCheck: null, witchSaved: false, witchPoisonTarget: null };
+    let witchHealUsed = false;
+    let witchPoisonUsed = false;
+    let seerCheckedThisNight = false;
     let nightLog = "";
     let transitionTimer = 5;
 
@@ -39,18 +42,28 @@
     let speechUnlocked = false;
     let thaiVoice = null;
 
-    const availableRoles = [
-      { id: 'wolf1', name: 'หมาป่า', icon: '🐺', desc: 'เลือกเหยื่อที่จะกำจัดในตอนกลางคืน' },
-      { id: 'wolf2', name: 'หมาป่า', icon: '🐺', desc: 'เลือกเหยื่อที่จะกำจัดในตอนกลางคืน' },
-      { id: 'seer', name: 'ผู้ทำนาย', icon: '🔮', desc: 'ส่องดูบทบาทลับของเพื่อนคืนละ 1 คน' },
-      { id: 'doctor', name: 'หมอ', icon: '🩺', desc: 'เลือกปกป้องผู้เล่น 1 คนจากการถูกทำร้าย' },
-      { id: 'v1', name: 'ชาวบ้าน', icon: '👨‍🌾', desc: 'ตามหาและโหวตกำจัดหมาป่าในตอนกลางวัน' },
-      { id: 'v2', name: 'ชาวบ้าน', icon: '👨‍🌾', desc: 'ตามหาและโหวตกำจัดหมาป่าในตอนกลางวัน' },
-      { id: 'v3', name: 'ชาวบ้าน', icon: '👨‍🌾', desc: 'ตามหาและโหวตกำจัดหมาป่าในตอนกลางวัน' },
-      { id: 'v4', name: 'ชาวบ้าน', icon: '👨‍🌾', desc: 'ตามหาและโหวตกำจัดหมาป่าในตอนกลางวัน' }
+    // นิยามบทบาททั้งหมดและโควตาการเลือก
+    const roleDefs = [
+      { id: 'wolf', name: 'หมาป่า', icon: '🐺', desc: 'เลือกเหยื่อที่จะกำจัดในตอนกลางคืน', max: 4 },
+      { id: 'seer', name: 'ผู้ทำนาย', icon: '🔮', desc: 'ส่องดูบทบาทลับของเพื่อนคืนละ 1 คน', max: 4 },
+      { id: 'doctor', name: 'หมอ', icon: '🩺', desc: 'เลือกปกป้องผู้เล่น 1 คนจากการถูกทำร้าย', max: 4 },
+      { id: 'witch', name: 'แม่มด', icon: '🧙‍♀️', desc: 'มียาช่วยชีวิต 1 ขวด และยาพิษ 1 ขวด', max: 4 },
+      { id: 'hunter', name: 'ฮันเตอร์', icon: '🏹', desc: 'เมื่อตาย สามารถยิงผู้เล่นอื่นตายตามได้ 1 คน', max: 4 },
+      { id: 'fool', name: 'คนบ้า', icon: '🤪', desc: 'เป้าหมายคือหลอกให้คนอื่นโหวตประหารตัวเอง', max: 4 },
+      { id: 'villager', name: 'ชาวบ้าน', icon: '👨‍🌾', desc: 'ตามหาและโหวตกำจัดหมาป่าในตอนกลางวัน', max: 6 }
     ];
 
-    // โหลดรายชื่อเสียงพูดในเครื่อง
+    // จำนวนการ์ดเริ่มต้น
+    let roleCounts = {
+      wolf: 1,
+      seer: 1,
+      doctor: 1,
+      witch: 0,
+      hunter: 0,
+      fool: 0,
+      villager: 1
+    };
+
     function loadVoices() {
       if ('speechSynthesis' in window) {
         const voices = window.speechSynthesis.getVoices();
@@ -65,7 +78,6 @@
       }
     }
 
-    // ปลดล็อกระบบเสียงของมือถือทันทีเมื่อมีการแตะสัมผัสหน้าจอ
     function initAudio() {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -86,7 +98,6 @@
       }
     }
 
-    // เสียงกระดิ่งสัญญาณ
     function playChime(type) {
       initAudio();
       try {
@@ -102,22 +113,11 @@
             osc.connect(gain); gain.connect(audioCtx.destination);
             osc.start(now + i*0.22); osc.stop(now + i*0.22 + 0.5);
           });
-        } else if (type === 'seer') {
+        } else if (type === 'seer' || type === 'doctor' || type === 'witch') {
           [587.33, 880, 1174.66].forEach((freq, i) => {
             let osc = audioCtx.createOscillator();
             let gain = audioCtx.createGain();
             osc.type = 'sine';
-            osc.frequency.setValueAtTime(freq, now + i*0.18);
-            gain.gain.setValueAtTime(0.3, now + i*0.18);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + i*0.18 + 0.5);
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.start(now + i*0.18); osc.stop(now + i*0.18 + 0.5);
-          });
-        } else if (type === 'doctor') {
-          [523.25, 659.25, 783.99].forEach((freq, i) => {
-            let osc = audioCtx.createOscillator();
-            let gain = audioCtx.createGain();
-            osc.type = 'triangle';
             osc.frequency.setValueAtTime(freq, now + i*0.18);
             gain.gain.setValueAtTime(0.3, now + i*0.18);
             gain.gain.exponentialRampToValueAtTime(0.001, now + i*0.18 + 0.5);
@@ -156,9 +156,7 @@
         banner.classList.add('opacity-100', 'translate-y-0');
 
         if (bannerTimeout) clearTimeout(bannerTimeout);
-        bannerTimeout = setTimeout(() => {
-          hideVoiceBanner();
-        }, duration);
+        bannerTimeout = setTimeout(() => { hideVoiceBanner(); }, duration);
       }
     }
 
@@ -170,7 +168,6 @@
       }
     }
 
-    // ประกาศคำสั่งเกม (ส่งเสียงกระดิ่ง + เสียงพูดภาษาไทย)
     function announceCommand(text, chimeType, callback) {
       initAudio();
       showVoiceBanner(text, 8000);
@@ -182,7 +179,7 @@
 
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'th-TH';
-        utterance.rate = 0.85;
+        utterance.rate = 1.10; // ปรับความเร็วเสียงพูดให้เร็วขึ้นกระชับขึ้น
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
 
@@ -198,60 +195,127 @@
         };
 
         utterance.onend = finish;
-        utterance.onerror = (e) => {
-          console.warn("Speech error:", e);
-          finish();
-        };
+        utterance.onerror = (e) => { finish(); };
 
         window.speechSynthesis.speak(utterance);
-
-        setTimeout(finish, 5000);
+        setTimeout(finish, 4000);
       } else {
         setTimeout(() => { if (callback) callback(); }, 2000);
       }
     }
 
     function testVoice() {
-      announceCommand('ทดสอบเสียงพูดภาษาไทยครับ ได้ยินเสียงชัดเจนไหมครับ', 'morning');
+      announceCommand('ทดสอบเสียงพูดภาษาไทยครับ ความเร็วพอดีไหมครับ', 'morning');
     }
 
-    function showGuide() {
-      alert("💡 วิธีตั้งค่าให้มือถือมีเสียงพูดภาษาไทย 100%:\n\niPhone / iPad:\n1. ไปที่ Settings (ตั้งค่า) > Accessibility (การเข้าถึง)\n2. เลือก Spoken Content (เนื้อหาอ่านได้) > Voices (เสียง)\n3. เลือก Thai (ไทย) แล้วกดโหลดเสียง 'Kanya' หรือ 'Narisa'\n\nAndroid:\n1. ไปที่ Settings (ตั้งค่า) > System (ระบบ)\n2. เลือก Language & Input (ภาษาและการป้อนข้อมูล) > Text-to-speech output\n3. เลือก Google Speech Services แล้วตั้งเป็นภาษาไทยครับ");
+    function updateRoleCount(roleId, change) {
+      const def = roleDefs.find(r => r.id === roleId);
+      if (!def) return;
+      const current = roleCounts[roleId] || 0;
+      const next = current + change;
+      if (next >= 0 && next <= def.max) {
+        roleCounts[roleId] = next;
+        render();
+      }
+    }
+
+    function getNextNightState(current) {
+      const hasAliveRole = (roleId) => players.some(p => p.alive && p.role.id === roleId);
+
+      if (current === 'night_wolf') {
+        if (hasAliveRole('seer')) return { state: 'night_seer', msg: 'หมาป่า หลับตาลง... ผู้ทำนาย ตื่นขึ้นมาส่องดูบทบาท', chime: 'seer' };
+        if (hasAliveRole('doctor')) return { state: 'night_doctor', msg: 'หมาป่า หลับตาลง... หมอ ตื่นขึ้นมาคุ้มกัน', chime: 'doctor' };
+        if (hasAliveRole('witch')) return { state: 'night_witch', msg: 'หมาป่า หลับตาลง... แม่มด ตื่นขึ้นมาเลือกใช้ยา', chime: 'witch' };
+        return { state: 'day', msg: 'หมาป่า หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
+      }
+      if (current === 'night_seer') {
+        if (hasAliveRole('doctor')) return { state: 'night_doctor', msg: 'ผู้ทำนาย หลับตาลง... หมอ ตื่นขึ้นมาคุ้มกัน', chime: 'doctor' };
+        if (hasAliveRole('witch')) return { state: 'night_witch', msg: 'ผู้ทำนาย หลับตาลง... แม่มด ตื่นขึ้นมาเลือกใช้ยา', chime: 'witch' };
+        return { state: 'day', msg: 'ผู้ทำนาย หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
+      }
+      if (current === 'night_doctor') {
+        if (hasAliveRole('witch')) return { state: 'night_witch', msg: 'หมอ หลับตาลง... แม่มด ตื่นขึ้นมาเลือกใช้ยา', chime: 'witch' };
+        return { state: 'day', msg: 'หมอ หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
+      }
+      if (current === 'night_witch') {
+        return { state: 'day', msg: 'แม่มด หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
+      }
+      return { state: 'day', msg: 'เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
     }
 
     function render() {
       const app = document.getElementById('app');
       
-      // 1. หน้าตั้งค่าเกม
+      // 1. หน้าตั้งค่าเกม & จัดสำรับบทบาท
       if (gameState === 'setup') {
+        const totalCards = Object.values(roleCounts).reduce((a, b) => a + b, 0);
+        const isCountMatch = totalCards === players.length && players.length >= 4;
+
         app.innerHTML = `
-          <h1 class="text-2xl font-bold text-center text-amber-400 mb-1">🐺 เกมหมาป่าระบบเสียงภาษาไทย</h1>
-          <p class="text-xs text-slate-400 text-center mb-3">เพิ่มผู้เล่น แล้วกดทดสอบเสียงพูดได้เลย</p>
+          <h1 class="text-xl font-bold text-center text-amber-400 mb-1">🐺 เกมหมาป่าปรับแต่งบทบาท</h1>
+          <p class="text-[11px] text-slate-400 text-center mb-3">ใส่ชื่อผู้เล่นและจัดสำรับบทบาทการ์ดให้พอดีกัน</p>
 
-          <button onclick="testVoice()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold rounded-xl text-xs mb-2 shadow-lg flex items-center justify-center gap-2 animate-pulse">
-            🔊 กดเพื่อทดสอบเสียงพูดภาษาไทย
+          <button onclick="testVoice()" class="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold rounded-xl text-xs mb-3 shadow flex items-center justify-center gap-2">
+            🔊 ทดสอบเสียงพูดภาษาไทย (แบบเร็ว)
           </button>
 
-          <button onclick="showGuide()" class="w-full py-1.5 text-[11px] text-slate-400 hover:text-amber-300 underline text-center mb-4 block">
-            ❓ ถ้ากดแล้วยังไม่มีเสียงพูด ทำอย่างไร? (คลิกดูวิธีตั้งค่า)
-          </button>
+          <!-- ส่วนที่ 1: รายชื่อผู้เล่น -->
+          <div class="bg-slate-700/40 p-3 rounded-xl border border-slate-600 mb-3">
+            <h3 class="font-bold text-amber-300 text-xs mb-2">1. รายชื่อผู้เล่น (${players.length} คน)</h3>
+            <div class="flex gap-2 mb-2">
+              <input id="nameInput" type="text" placeholder="พิมพ์ชื่อผู้เล่น..." class="flex-1 px-3 py-1.5 bg-slate-800 border border-slate-600 rounded-lg text-white text-xs">
+              <button onclick="addPlayer()" class="bg-amber-500 hover:bg-amber-600 font-bold px-3 py-1.5 rounded-lg text-slate-900 text-xs">+ เพิ่ม</button>
+            </div>
 
-          <div class="flex gap-2 mb-4">
-            <input id="nameInput" type="text" placeholder="พิมพ์ชื่อผู้เล่น..." class="flex-1 px-4 py-2 bg-slate-700 border border-slate-600 rounded-xl text-white text-sm">
-            <button onclick="addPlayer()" class="bg-amber-500 hover:bg-amber-600 font-bold px-4 py-2 rounded-xl text-slate-900 text-sm">+ เพิ่ม</button>
+            <div class="space-y-1.5 max-h-32 overflow-y-auto">
+              ${players.length === 0 ? '<p class="text-center text-slate-500 text-xs py-1">เพิ่มผู้เล่นอย่างน้อย 4 คน</p>' : ''}
+              ${players.map((p, i) => `
+                <div class="flex justify-between items-center bg-slate-800/80 px-2.5 py-1 rounded-lg text-xs">
+                  <span>${i+1}. ${p.name}</span>
+                  <button onclick="removePlayer(${i})" class="text-red-400 font-bold text-xs">✕</button>
+                </div>
+              `).join('')}
+            </div>
           </div>
 
-          <div class="space-y-2 mb-6 max-h-48 overflow-y-auto">
-            ${players.length === 0 ? '<p class="text-center text-slate-500 text-sm">กรุณาเพิ่มชื่อผู้เล่นอย่างน้อย 4 คน</p>' : ''}
-            ${players.map((p, i) => `
-              <div class="flex justify-between items-center bg-slate-700/50 px-3 py-2 rounded-lg text-sm">
-                <span>${i+1}. ${p.name}</span>
-                <button onclick="removePlayer(${i})" class="text-red-400 font-bold">✕</button>
-              </div>
-            `).join('')}
+          <!-- ส่วนที่ 2: จัดสำรับบทบาท -->
+          <div class="bg-slate-700/40 p-3 rounded-xl border border-slate-600 mb-4">
+            <div class="flex justify-between items-center mb-2">
+              <h3 class="font-bold text-amber-300 text-xs">2. จัดสำรับบทบาทการ์ด</h3>
+              <span class="text-xs font-bold ${totalCards === players.length ? 'text-emerald-400' : 'text-amber-400'}">
+                ${totalCards} / ${players.length} ใบ
+              </span>
+            </div>
+
+            <div class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+              ${roleDefs.map(r => `
+                <div class="flex items-center justify-between bg-slate-800/80 px-2.5 py-1.5 rounded-lg text-xs">
+                  <div class="flex items-center gap-2">
+                    <span class="text-base">${r.icon}</span>
+                    <div>
+                      <span class="font-bold text-white">${r.name}</span>
+                      <span class="text-[9px] text-slate-400 block">${r.desc}</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <button onclick="updateRoleCount('${r.id}', -1)" class="w-6 h-6 bg-slate-700 hover:bg-slate-600 rounded font-bold text-white text-xs flex items-center justify-center">-</button>
+                    <span class="w-4 text-center font-bold text-amber-300 text-xs">${roleCounts[r.id] || 0}</span>
+                    <button onclick="updateRoleCount('${r.id}', 1)" class="w-6 h-6 bg-slate-700 hover:bg-slate-600 rounded font-bold text-white text-xs flex items-center justify-center">+</button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
           </div>
 
-          <button onclick="startGame()" ${players.length < 4 ? 'disabled' : ''} class="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 font-bold rounded-xl text-slate-900 text-sm shadow-lg">
+          <!-- แจ้งเตือนความถูกต้อง -->
+          ${players.length < 4 ? `<p class="text-center text-xs text-amber-400 mb-2 font-semibold">⚠️ กรุณาเพิ่มผู้เล่นอย่างน้อย 4 คนขึ้นไป</p>` : ''}
+          ${players.length >= 4 && totalCards !== players.length ? `
+            <p class="text-center text-xs text-red-400 mb-2 font-semibold">
+              ⚠️ การ์ดรวม (${totalCards} ใบ) ${totalCards < players.length ? `ขาดอีก ${players.length - totalCards} ใบ` : `เกินอยู่ ${totalCards - players.length} ใบ`} ให้เท่าจำนวนผู้เล่น (${players.length} คน)
+            </p>
+          ` : ''}
+
+          <button onclick="startGame()" ${!isCountMatch ? 'disabled' : ''} class="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-30 font-bold rounded-xl text-slate-900 text-sm shadow-lg">
             🎮 เริ่มสุ่มแจกบทบาท (${players.length} คน)
           </button>
         `;
@@ -279,7 +343,7 @@
         `;
       }
 
-      // 2.5 หน้าพูดคุยก่อนเข้าสู่กลางคืน
+      // 2.5 พูดคุยก่อนเริ่มคืนแรก
       else if (gameState === 'pre_night') {
         app.innerHTML = `
           <div class="text-center space-y-4">
@@ -305,7 +369,7 @@
         `;
       }
 
-      // 3. หน้าเริ่มต้นกลางคืน
+      // 3. เริ่มต้นกลางคืน
       else if (gameState === 'night_intro') {
         app.innerHTML = `
           <div class="text-center space-y-4">
@@ -322,9 +386,9 @@
         `;
       }
 
-      // 4. หมาป่าเลือกเหยื่อ
+      // 4. หมาป่า
       else if (gameState === 'night_wolf') {
-        const aliveTargets = players.filter(p => p.alive && p.role.name !== 'หมาป่า');
+        const aliveTargets = players.filter(p => p.alive && p.role.id !== 'wolf');
         app.innerHTML = `
           <div class="space-y-4">
             <h2 class="text-lg font-bold text-red-400 text-center">🐺 หมาป่า: เลือกเหยื่อ 1 คน</h2>
@@ -340,7 +404,7 @@
         `;
       }
 
-      // 5. หน้าพักรอ 5 วินาทีสลับบทบาท
+      // 5. พักรอสลับบทบาท
       else if (gameState === 'night_waiting') {
         app.innerHTML = `
           <div class="text-center space-y-4 py-8">
@@ -352,21 +416,22 @@
         `;
       }
 
-      // 6. ผู้ทำนายส่องดู
+      // 6. ผู้ทำนาย (แก้บัคส่องได้แค่คนเดียว)
       else if (gameState === 'night_seer') {
-        const aliveSeer = players.find(p => p.role.name === 'ผู้ทำนาย' && p.alive);
+        const aliveSeer = players.find(p => p.role.id === 'seer' && p.alive);
         if (!aliveSeer) {
-          startTransition('night_doctor', 'ผู้ทำนาย หลับตาลง... หมอ ตื่นขึ้นมาคุ้มกัน', 'doctor');
+          const next = getNextNightState('night_seer');
+          startTransition(next.state, next.msg, next.chime);
           return;
         }
-        const otherPlayers = players.filter(p => p.alive && p.role.name !== 'ผู้ทำนาย');
+        const otherPlayers = players.filter(p => p.alive && p.role.id !== 'seer');
         app.innerHTML = `
           <div class="space-y-4">
-            <h2 class="text-lg font-bold text-purple-400 text-center">🔮 ผู้ทำนาย: เลือกส่องดูบทบาท</h2>
+            <h2 class="text-lg font-bold text-purple-400 text-center">🔮 ผู้ทำนาย: เลือกส่องดูบทบาท (เลือกได้คนเดียว)</h2>
             <div id="seerResult"></div>
             <div class="space-y-2 max-h-48 overflow-y-auto">
               ${otherPlayers.map(p => `
-                <button onclick="checkSeerRole('${p.name}', '${p.role.name}')" class="w-full p-3 bg-slate-700 hover:bg-purple-900/40 border border-slate-600 rounded-xl text-left font-bold text-sm">
+                <button onclick="checkSeerRole('${p.name}', '${p.role.name}')" class="seer-btn w-full p-3 bg-slate-700 hover:bg-purple-900/40 border border-slate-600 rounded-xl text-left font-bold text-sm">
                   🔍 ส่องดูบทบาทของ ${p.name}
                 </button>
               `).join('')}
@@ -375,11 +440,12 @@
         `;
       }
 
-      // 7. หมอคุ้มกัน
+      // 7. หมอ
       else if (gameState === 'night_doctor') {
-        const aliveDoctor = players.find(p => p.role.name === 'หมอ' && p.alive);
+        const aliveDoctor = players.find(p => p.role.id === 'doctor' && p.alive);
         if (!aliveDoctor) {
-          startTransition('day', 'หมอ หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', 'morning');
+          const next = getNextNightState('night_doctor');
+          startTransition(next.state, next.msg, next.chime);
           return;
         }
         const alivePlayers = players.filter(p => p.alive);
@@ -397,7 +463,48 @@
         `;
       }
 
-      // 8. กลางวัน
+      // 8. แม่มด
+      else if (gameState === 'night_witch') {
+        const aliveWitch = players.find(p => p.role.id === 'witch' && p.alive);
+        if (!aliveWitch) {
+          const next = getNextNightState('night_witch');
+          startTransition(next.state, next.msg, next.chime);
+          return;
+        }
+        const aliveOthers = players.filter(p => p.alive && p.role.id !== 'witch');
+        app.innerHTML = `
+          <div class="space-y-3">
+            <h2 class="text-lg font-bold text-pink-400 text-center">🧙‍♀️ แม่มด: เลือกใช้เวทมนตร์</h2>
+            
+            <div class="p-3 bg-slate-700/80 rounded-xl text-xs text-slate-200 border border-slate-600">
+              🐺 หมาป่าเลือกทำร้ายคืนนี้: <b class="text-amber-300 font-bold">${nightAction.wolfTarget || 'ไม่มี'}</b>
+            </div>
+
+            <div class="space-y-2">
+              <button onclick="witchSaveAction()" ${witchHealUsed || !nightAction.wolfTarget ? 'disabled' : ''} class="w-full p-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 font-bold rounded-xl text-xs text-white">
+                🧪 ใช้ยาช่วยชีวิต ${nightAction.wolfTarget ? nightAction.wolfTarget : ''} ${witchHealUsed ? '(ใช้ไปแล้ว)' : ''}
+              </button>
+
+              <div class="border-t border-slate-700 pt-2">
+                <p class="text-[11px] text-slate-400 mb-1">☠️ ใช้ยาพิษสังหารผู้เล่น (ขวดเดียวทั้งเกม):</p>
+                <div class="space-y-1.5 max-h-28 overflow-y-auto">
+                  ${aliveOthers.map(p => `
+                    <button onclick="witchPoisonAction('${p.name}')" ${witchPoisonUsed ? 'disabled' : ''} class="w-full p-2 bg-slate-700 hover:bg-red-900/40 disabled:opacity-40 text-left rounded-lg text-xs font-semibold">
+                      ☠️ ใส่ยาพิษ ${p.name}
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+
+              <button onclick="witchFinish()" class="w-full py-2.5 bg-slate-600 hover:bg-slate-500 font-bold rounded-xl text-xs text-white mt-2">
+                ⏭️ ข้าม / ยืนยันคำสั่ง
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      // 9. กลางวัน
       else if (gameState === 'day') {
         app.innerHTML = `
           <div class="text-center">
@@ -445,7 +552,7 @@
         `;
       }
 
-      // 9. เฉลยบทบาทจบเกม
+      // 10. จบเกม
       else if (gameState === 'game_over') {
         app.innerHTML = `
           <div class="text-center space-y-3">
@@ -484,9 +591,24 @@
 
     function startGame() {
       initAudio();
-      const shuffled = [...availableRoles].sort(() => Math.random() - 0.5);
-      players.forEach((p, i) => { p.role = shuffled[i % shuffled.length]; p.alive = true; });
-      currentRevealIndex = 0; gameState = 'reveal'; render();
+      // สร้างสำรับการ์ดตามจำนวนที่เลือกไว้
+      let deck = [];
+      roleDefs.forEach(r => {
+        const count = roleCounts[r.id] || 0;
+        for (let i = 0; i < count; i++) {
+          deck.push({ ...r });
+        }
+      });
+
+      // สุ่มการ์ดให้ผู้เล่นทุกคน
+      const shuffled = [...deck].sort(() => Math.random() - 0.5);
+      players.forEach((p, i) => { p.role = shuffled[i]; p.alive = true; });
+      
+      witchHealUsed = false;
+      witchPoisonUsed = false;
+      currentRevealIndex = 0; 
+      gameState = 'reveal'; 
+      render();
     }
 
     function revealRole() {
@@ -542,7 +664,8 @@
     function startNightPhase() {
       initAudio();
       if (timer) clearInterval(timer); timer = null;
-      nightAction = { wolfTarget: null, doctorSave: null, seerCheck: null };
+      nightAction = { wolfTarget: null, doctorSave: null, seerCheck: null, witchSaved: false, witchPoisonTarget: null };
+      seerCheckedThisNight = false;
       gameState = 'night_intro'; render();
     }
 
@@ -554,23 +677,56 @@
 
     function selectWolfTarget(name) {
       nightAction.wolfTarget = name;
-      startTransition('night_seer', 'หมาป่า หลับตาลง... ผู้ทำนาย ตื่นขึ้นมาส่องดูบทบาท', 'seer');
+      const next = getNextNightState('night_wolf');
+      startTransition(next.state, next.msg, next.chime);
     }
 
     function checkSeerRole(name, roleName) {
+      if (seerCheckedThisNight) return;
+      seerCheckedThisNight = true;
+
+      // ล็อคปุ่มส่องทันที
+      const btns = document.querySelectorAll('.seer-btn');
+      btns.forEach(b => {
+        b.disabled = true;
+        b.classList.add('opacity-40', 'cursor-not-allowed');
+      });
+
       document.getElementById('seerResult').innerHTML = `
         <div class="p-3 bg-purple-950/80 border border-purple-500 rounded-xl text-center mb-3">
           <p class="text-xs text-purple-200">${name} มีบทบาทคือ: <b class="text-amber-300 text-sm">${roleName}</b></p>
         </div>
       `;
+
       setTimeout(() => {
-        startTransition('night_doctor', 'ผู้ทำนาย หลับตาลง... หมอ ตื่นขึ้นมาคุ้มกัน', 'doctor');
+        const next = getNextNightState('night_seer');
+        startTransition(next.state, next.msg, next.chime);
       }, 2500);
     }
 
     function selectDoctorSave(name) {
       nightAction.doctorSave = name;
-      startTransition('day', 'หมอ หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', 'morning');
+      const next = getNextNightState('night_doctor');
+      startTransition(next.state, next.msg, next.chime);
+    }
+
+    function witchSaveAction() {
+      nightAction.witchSaved = true;
+      witchHealUsed = true;
+      alert(`🧪 ใช้ยาช่วยชีวิต ${nightAction.wolfTarget} สำเร็จ`);
+      render();
+    }
+
+    function witchPoisonAction(name) {
+      nightAction.witchPoisonTarget = name;
+      witchPoisonUsed = true;
+      alert(`☠️ วางยาพิษใส่ ${name} สำเร็จ`);
+      render();
+    }
+
+    function witchFinish() {
+      const next = getNextNightState('night_witch');
+      startTransition(next.state, next.msg, next.chime);
     }
 
     function startTransition(nextState, speechMessage, chimeType) {
@@ -598,17 +754,65 @@
     }
 
     function processNightResults() {
-      if (nightAction.wolfTarget && nightAction.wolfTarget !== nightAction.doctorSave) {
-        const victim = players.find(p => p.name === nightAction.wolfTarget);
-        if (victim) {
-          victim.alive = false;
-          nightLog = `📢 เมื่อคืนนี้ 💀 ${victim.name} ถูกหมาป่าทำร้ายเสียชีวิต!`;
+      let deadList = [];
+
+      // 1. ตรวจสอบการฆ่าของหมาป่า
+      if (nightAction.wolfTarget) {
+        const isSavedByDoctor = (nightAction.wolfTarget === nightAction.doctorSave);
+        const isSavedByWitch = nightAction.witchSaved;
+        if (!isSavedByDoctor && !isSavedByWitch) {
+          deadList.push(nightAction.wolfTarget);
         }
+      }
+
+      // 2. ตรวจสอบยาพิษแม่มด
+      if (nightAction.witchPoisonTarget && !deadList.includes(nightAction.witchPoisonTarget)) {
+        deadList.push(nightAction.witchPoisonTarget);
+      }
+
+      let hunterTriggered = [];
+      deadList.forEach(name => {
+        const p = players.find(player => player.name === name);
+        if (p) {
+          p.alive = false;
+          if (p.role.id === 'hunter') {
+            hunterTriggered.push(p);
+          }
+        }
+      });
+
+      if (deadList.length > 0) {
+        nightLog = `📢 เมื่อคืนนี้ 💀 ${deadList.join(' และ ')} เสียชีวิต!`;
       } else {
         nightLog = `📢 เมื่อคืนนี้เป็นคืนที่เงียบสงบ ไม่มีใครเสียชีวิต!`;
       }
+
       resetTimer();
-      gameState = 'day'; render();
+      gameState = 'day'; 
+      render();
+
+      if (hunterTriggered.length > 0) {
+        setTimeout(() => {
+          hunterTriggered.forEach(h => triggerHunterShot(h));
+        }, 500);
+      }
+    }
+
+    function triggerHunterShot(hunterPlayer) {
+      const aliveTargets = players.filter(p => p.alive);
+      if (aliveTargets.length === 0) return;
+      
+      let targetName = prompt(`🏹 [ฮันเตอร์] ${hunterPlayer.name} เสียชีวิต!\nพิมพ์ชื่อผู้เล่นที่ต้องการยิงสังหารตาม (หรือกด Cancel เพื่อไม่ยิง):\n\nรายชื่อผู้เล่นที่ยังรอด: ${aliveTargets.map(p=>p.name).join(', ')}`);
+      if (targetName) {
+        const target = players.find(p => p.name.trim().toLowerCase() === targetName.trim().toLowerCase() && p.alive);
+        if (target) {
+          target.alive = false;
+          alert(`🏹 ${hunterPlayer.name} (ฮันเตอร์) ได้ยิงสังหาร 💀 ${target.name} ตายตามไปด้วย!`);
+          render();
+        } else {
+          alert('ไม่พบชื่อผู้เล่นดังกล่าว');
+        }
+      }
     }
 
     function toggleTimer() {
@@ -631,9 +835,21 @@
     
     function voteKill(i) {
       playChime('beep');
-      if (confirm(`ยืนยันผลโหวตประหาร ${players[i].name}?`)) {
-        players[i].alive = false;
-        alert(`⚖️ ${players[i].name} ถูกโหวตประหารชีวิต!`);
+      const victim = players[i];
+      if (confirm(`ยืนยันผลโหวตประหาร ${victim.name}?`)) {
+        victim.alive = false;
+        alert(`⚖️ ${victim.name} ถูกโหวตประหารชีวิต!`);
+
+        // ตรวจสอบเงื่อนไขคนบ้าชนะ
+        if (victim.role.id === 'fool') {
+          announceCommand(`คนบ้า ถูกโหวตประหารสำเร็จ! คนบ้าเป็นผู้ชนะในเกมนี้ครับ!`, 'morning');
+          alert(`🎉 🤪 ${victim.name} (คนบ้า) ถูกโหวตประหารสำเร็จ! คนบ้าชนะเกมนี้!`);
+        } 
+        // ตรวจสอบฮันเตอร์ยิงสวน
+        else if (victim.role.id === 'hunter') {
+          triggerHunterShot(victim);
+        }
+
         render();
       }
     }
