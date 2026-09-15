@@ -45,7 +45,7 @@
     // นิยามบทบาททั้งหมดและโควตาการเลือก
     const roleDefs = [
       { id: 'wolf', name: 'หมาป่า', icon: '🐺', desc: 'เลือกเหยื่อที่จะกำจัดในตอนกลางคืน', max: 4 },
-      { id: 'seer', name: 'ผู้ทำนาย', icon: '🔮', desc: 'ส่องดูบทบาทลับของเพื่อนคืนละ 1 คน', max: 4 },
+      { id: 'seer', name: 'ผู้ทำนาย', icon: '🔮', desc: 'ส่องดูฝ่ายดี/ฝ่ายร้ายของเพื่อนคืนละ 1 คน', max: 4 },
       { id: 'doctor', name: 'หมอ', icon: '🩺', desc: 'เลือกปกป้องผู้เล่น 1 คนจากการถูกทำร้าย', max: 4 },
       { id: 'witch', name: 'แม่มด', icon: '🧙‍♀️', desc: 'มียาช่วยชีวิต 1 ขวด และยาพิษ 1 ขวด', max: 4 },
       { id: 'hunter', name: 'ฮันเตอร์', icon: '🏹', desc: 'เมื่อตาย สามารถยิงผู้เล่นอื่นตายตามได้ 1 คน', max: 4 },
@@ -179,7 +179,7 @@
 
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'th-TH';
-        utterance.rate = 1.10; // ปรับความเร็วเสียงพูดให้เร็วขึ้นกระชับขึ้น
+        utterance.rate = 1.10;
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
 
@@ -198,7 +198,7 @@
         utterance.onerror = (e) => { finish(); };
 
         window.speechSynthesis.speak(utterance);
-        setTimeout(finish, 4000);
+        setTimeout(finish, 5000);
       } else {
         setTimeout(() => { if (callback) callback(); }, 2000);
       }
@@ -223,24 +223,24 @@
       const hasAliveRole = (roleId) => players.some(p => p.alive && p.role.id === roleId);
 
       if (current === 'night_wolf') {
-        if (hasAliveRole('seer')) return { state: 'night_seer', msg: 'หมาป่า หลับตาลง... ผู้ทำนาย ตื่นขึ้นมาส่องดูบทบาท', chime: 'seer' };
+        if (hasAliveRole('seer')) return { state: 'night_seer', msg: 'หมาป่า หลับตาลง... ผู้ทำนาย ตื่นขึ้นมาส่องดูฝ่ายดีหรือฝ่ายร้าย', chime: 'seer' };
         if (hasAliveRole('doctor')) return { state: 'night_doctor', msg: 'หมาป่า หลับตาลง... หมอ ตื่นขึ้นมาคุ้มกัน', chime: 'doctor' };
         if (hasAliveRole('witch')) return { state: 'night_witch', msg: 'หมาป่า หลับตาลง... แม่มด ตื่นขึ้นมาเลือกใช้ยา', chime: 'witch' };
-        return { state: 'day', msg: 'หมาป่า หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
+        return { state: 'day', msg: '', chime: 'morning' };
       }
       if (current === 'night_seer') {
         if (hasAliveRole('doctor')) return { state: 'night_doctor', msg: 'ผู้ทำนาย หลับตาลง... หมอ ตื่นขึ้นมาคุ้มกัน', chime: 'doctor' };
         if (hasAliveRole('witch')) return { state: 'night_witch', msg: 'ผู้ทำนาย หลับตาลง... แม่มด ตื่นขึ้นมาเลือกใช้ยา', chime: 'witch' };
-        return { state: 'day', msg: 'ผู้ทำนาย หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
+        return { state: 'day', msg: '', chime: 'morning' };
       }
       if (current === 'night_doctor') {
         if (hasAliveRole('witch')) return { state: 'night_witch', msg: 'หมอ หลับตาลง... แม่มด ตื่นขึ้นมาเลือกใช้ยา', chime: 'witch' };
-        return { state: 'day', msg: 'หมอ หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
+        return { state: 'day', msg: '', chime: 'morning' };
       }
       if (current === 'night_witch') {
-        return { state: 'day', msg: 'แม่มด หลับตาลง... เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
+        return { state: 'day', msg: '', chime: 'morning' };
       }
-      return { state: 'day', msg: 'เช้าแล้ว ทุกคนตื่นได้!', chime: 'morning' };
+      return { state: 'day', msg: '', chime: 'morning' };
     }
 
     function render() {
@@ -416,7 +416,7 @@
         `;
       }
 
-      // 6. ผู้ทำนาย (แก้บัคส่องได้แค่คนเดียว)
+      // 6. ผู้ทำนาย (ส่องดูได้แค่ฝ่ายดี หรือ ฝ่ายร้าย)
       else if (gameState === 'night_seer') {
         const aliveSeer = players.find(p => p.role.id === 'seer' && p.alive);
         if (!aliveSeer) {
@@ -427,12 +427,12 @@
         const otherPlayers = players.filter(p => p.alive && p.role.id !== 'seer');
         app.innerHTML = `
           <div class="space-y-4">
-            <h2 class="text-lg font-bold text-purple-400 text-center">🔮 ผู้ทำนาย: เลือกส่องดูบทบาท (เลือกได้คนเดียว)</h2>
+            <h2 class="text-lg font-bold text-purple-400 text-center">🔮 ผู้ทำนาย: เลือกส่องดูฝ่าย (เลือกได้คนเดียว)</h2>
             <div id="seerResult"></div>
             <div class="space-y-2 max-h-48 overflow-y-auto">
               ${otherPlayers.map(p => `
-                <button onclick="checkSeerRole('${p.name}', '${p.role.name}')" class="seer-btn w-full p-3 bg-slate-700 hover:bg-purple-900/40 border border-slate-600 rounded-xl text-left font-bold text-sm">
-                  🔍 ส่องดูบทบาทของ ${p.name}
+                <button onclick="checkSeerRole('${p.name}', '${p.role.id}')" class="seer-btn w-full p-3 bg-slate-700 hover:bg-purple-900/40 border border-slate-600 rounded-xl text-left font-bold text-sm">
+                  🔍 ส่องดูฝ่ายของ ${p.name}
                 </button>
               `).join('')}
             </div>
@@ -591,7 +591,6 @@
 
     function startGame() {
       initAudio();
-      // สร้างสำรับการ์ดตามจำนวนที่เลือกไว้
       let deck = [];
       roleDefs.forEach(r => {
         const count = roleCounts[r.id] || 0;
@@ -600,7 +599,6 @@
         }
       });
 
-      // สุ่มการ์ดให้ผู้เล่นทุกคน
       const shuffled = [...deck].sort(() => Math.random() - 0.5);
       players.forEach((p, i) => { p.role = shuffled[i]; p.alive = true; });
       
@@ -681,20 +679,23 @@
       startTransition(next.state, next.msg, next.chime);
     }
 
-    function checkSeerRole(name, roleName) {
+    // แก้ไข: แสดงผลเฉพาะฝ่ายดี หรือ ฝ่ายร้าย
+    function checkSeerRole(name, roleId) {
       if (seerCheckedThisNight) return;
       seerCheckedThisNight = true;
 
-      // ล็อคปุ่มส่องทันที
       const btns = document.querySelectorAll('.seer-btn');
       btns.forEach(b => {
         b.disabled = true;
         b.classList.add('opacity-40', 'cursor-not-allowed');
       });
 
+      const isWolf = (roleId === 'wolf');
+      const sideText = isWolf ? 'ฝ่ายร้าย 🐺' : 'ฝ่ายดี 😇';
+
       document.getElementById('seerResult').innerHTML = `
         <div class="p-3 bg-purple-950/80 border border-purple-500 rounded-xl text-center mb-3">
-          <p class="text-xs text-purple-200">${name} มีบทบาทคือ: <b class="text-amber-300 text-sm">${roleName}</b></p>
+          <p class="text-xs text-purple-200">${name} อยู่: <b class="${isWolf ? 'text-red-400' : 'text-emerald-400'} text-sm font-bold">${sideText}</b></p>
         </div>
       `;
 
@@ -739,8 +740,8 @@
         if (transitionTimer <= 0) {
           clearInterval(countdown);
           if (nextState === 'day') {
-            processNightResults();
-            announceCommand(speechMessage, 'morning');
+            const morningMsg = processNightResults();
+            announceCommand(morningMsg, 'morning');
           } else {
             announceCommand(speechMessage, chimeType, () => {
               gameState = nextState;
@@ -753,6 +754,7 @@
       }, 1000);
     }
 
+    // แก้ไข: สร้างข้อความเสียงประกาศตอนเช้าเกี่ยวกับผู้เสียชีวิต
     function processNightResults() {
       let deadList = [];
 
@@ -781,10 +783,14 @@
         }
       });
 
+      let morningSpeech = "";
       if (deadList.length > 0) {
-        nightLog = `📢 เมื่อคืนนี้ 💀 ${deadList.join(' และ ')} เสียชีวิต!`;
+        const deadNamesText = deadList.join(' และ ');
+        nightLog = `📢 เมื่อคืนนี้ 💀 ${deadNamesText} เสียชีวิต!`;
+        morningSpeech = `เช้าแล้ว ทุกคนตื่นได้! เมื่อคืนนี้ ${deadNamesText} เสียชีวิตครับ`;
       } else {
         nightLog = `📢 เมื่อคืนนี้เป็นคืนที่เงียบสงบ ไม่มีใครเสียชีวิต!`;
+        morningSpeech = `เช้าแล้ว ทุกคนตื่นได้! เมื่อคืนนี้เป็นคืนที่เงียบสงบ ไม่มีใครเสียชีวิตครับ`;
       }
 
       resetTimer();
@@ -796,6 +802,8 @@
           hunterTriggered.forEach(h => triggerHunterShot(h));
         }, 500);
       }
+
+      return morningSpeech;
     }
 
     function triggerHunterShot(hunterPlayer) {
@@ -840,12 +848,10 @@
         victim.alive = false;
         alert(`⚖️ ${victim.name} ถูกโหวตประหารชีวิต!`);
 
-        // ตรวจสอบเงื่อนไขคนบ้าชนะ
         if (victim.role.id === 'fool') {
           announceCommand(`คนบ้า ถูกโหวตประหารสำเร็จ! คนบ้าเป็นผู้ชนะในเกมนี้ครับ!`, 'morning');
           alert(`🎉 🤪 ${victim.name} (คนบ้า) ถูกโหวตประหารสำเร็จ! คนบ้าชนะเกมนี้!`);
         } 
-        // ตรวจสอบฮันเตอร์ยิงสวน
         else if (victim.role.id === 'hunter') {
           triggerHunterShot(victim);
         }
