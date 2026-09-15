@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Werewolf Mobile Game - Audio & Visual Edition</title>
+  <title>Werewolf Mobile Game - Online Thai TTS Edition</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
   <style> 
@@ -12,10 +12,10 @@
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex flex-col justify-center items-center p-4">
 
-  <!-- แถบป้ายข้อความแจ้งเตือนภาษาไทย (ลอยค้าง 8 วินาที อ่านทันแน่นอน) -->
+  <!-- แถบป้ายข้อความแจ้งเตือนภาษาไทย (ลอยค้าง 8 วินาที) -->
   <div id="voiceBanner" class="fixed top-3 left-3 right-3 max-w-md mx-auto bg-amber-400 text-slate-900 font-bold p-3 rounded-2xl shadow-2xl border-2 border-amber-200 text-xs flex items-center justify-between transition-all duration-300 opacity-0 -translate-y-4 pointer-events-none z-50">
     <div class="flex items-center gap-2.5 flex-1 pr-2">
-      <span class="text-xl animate-bounce">🔔</span>
+      <span class="text-xl animate-bounce">🗣️</span>
       <span id="voiceText" class="text-xs leading-snug">กำลังเตรียมคำสั่ง...</span>
     </div>
     <button onclick="hideVoiceBanner()" class="bg-slate-900/20 hover:bg-slate-900/40 text-slate-900 px-2 py-1 rounded-lg text-[10px] font-extrabold">✕ ปิด</button>
@@ -36,6 +36,7 @@
 
     let audioCtx = null;
     let bannerTimeout = null;
+    let currentSpeechAudio = null;
 
     const availableRoles = [
       { id: 'wolf1', name: 'หมาป่า', icon: '🐺', desc: 'เลือกเหยื่อที่จะกำจัดในตอนกลางคืน' },
@@ -48,7 +49,7 @@
       { id: 'v4', name: 'ชาวบ้าน', icon: '👨‍🌾', desc: 'ตามหาและโหวตกำจัดหมาป่าในตอนกลางวัน' }
     ];
 
-    // ปลดล็อกระบบเสียงของมือถือเมื่อมีการแตะหน้าจอ
+    // ปลดล็อกระบบเสียงบนมือถือ
     function initAudio() {
       if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -58,7 +59,7 @@
       }
     }
 
-    // สร้างเสียงกระดิ่งสัญญาณผ่าน Web Audio API (การันตีเสียงดัง 100% บนมือถือทุกเครื่อง)
+    // เสียงกระดิ่งแจ้งเตือน
     function playChime(type) {
       initAudio();
       try {
@@ -142,41 +143,62 @@
       }
     }
 
-    // ประกาศคำสั่งพร้อมเสียงกระดิ่งและเสียงพูด
-    function announceCommand(text, chimeType, callback) {
-      initAudio();
-      showVoiceBanner(text, 8000); // แสดงกรอบเหลืองเตือนนาน 8 วินาที
-      playChime(chimeType);
-
-      if ('speechSynthesis' in window) {
-        try {
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.lang = 'th-TH';
-          utterance.rate = 0.85;
-
-          const voices = window.speechSynthesis.getVoices();
-          const thaiVoice = voices.find(v => v.lang.includes('th') || v.lang.includes('TH'));
-          if (thaiVoice) utterance.voice = thaiVoice;
-
-          let done = false;
-          utterance.onend = () => { if (!done) { done = true; if (callback) callback(); } };
-          utterance.onerror = () => { if (!done) { done = true; if (callback) callback(); } };
-
-          window.speechSynthesis.speak(utterance);
-
-          setTimeout(() => {
-            if (!done) { done = true; if (callback) callback(); }
-          }, 3500);
-          return;
-        } catch(e) {}
+    // 🔊 ระบบพูดภาษาไทยออนไลน์ (Google TTS Voice Engine - ได้ยินเสียง 100%)
+    function speakThaiVoice(text, onEndCallback) {
+      if (currentSpeechAudio) {
+        currentSpeechAudio.pause();
+        currentSpeechAudio = null;
       }
 
-      setTimeout(() => { if (callback) callback(); }, 2000);
+      // เล่นเสียงผ่าน Google Voice Online
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=th&client=tw-ob&q=${encodeURIComponent(text)}`;
+      const audio = new Audio(url);
+      currentSpeechAudio = audio;
+
+      let called = false;
+      const done = () => {
+        if (!called) {
+          called = true;
+          if (onEndCallback) onEndCallback();
+        }
+      };
+
+      audio.onended = done;
+      audio.onerror = () => {
+        // สำรองกรณีออฟไลน์ ใช้ Web Speech API
+        try {
+          window.speechSynthesis.cancel();
+          const u = new SpeechSynthesisUtterance(text);
+          u.lang = 'th-TH';
+          u.onend = done;
+          u.onerror = done;
+          window.speechSynthesis.speak(u);
+        } catch(e) { done(); }
+      };
+
+      audio.play().catch(err => {
+        console.log("Audio play error, fallback to fallback timer");
+        setTimeout(done, 3000);
+      });
+
+      // ป้องกันเกมค้างกรณีโหลดเสียงนานเกินไป
+      setTimeout(done, 7000);
+    }
+
+    // ประกาศคำสั่งเกม (ส่งเสียงกระดิ่ง + เสียงพูดคนไทย + กรอบเหลือง)
+    function announceCommand(text, chimeType, callback) {
+      initAudio();
+      showVoiceBanner(text, 8000);
+      playChime(chimeType);
+
+      // รอเสียงกระดิ่งเล่น 0.4 วินาทีแล้วพูดคำสั่ง
+      setTimeout(() => {
+        speakThaiVoice(text, callback);
+      }, 400);
     }
 
     function testVoice() {
-      announceCommand('ทดสอบกระดิ่งและเสียงพูดภาษาไทย... หากเห็นกรอบนี้และได้ยินเสียง แสดงว่าระบบพร้อมครับ!', 'morning');
+      announceCommand('ทดสอบเสียงพูดภาษาไทยครับ ได้ยินเสียงชัดเจนไหมครับ', 'morning');
     }
 
     function render() {
@@ -186,10 +208,10 @@
       if (gameState === 'setup') {
         app.innerHTML = `
           <h1 class="text-2xl font-bold text-center text-amber-400 mb-1">🐺 เกมหมาป่าระบบเสียงภาษาไทย</h1>
-          <p class="text-xs text-slate-400 text-center mb-4">เพิ่มผู้เล่น แล้วกดทดสอบเสียงก่อนเริ่มเกมได้เลย</p>
-          
-          <button onclick="testVoice()" class="w-full py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold rounded-xl text-xs mb-4 border border-amber-400/40 flex items-center justify-center gap-2 shadow-md">
-            🔔 กดเพื่อทดสอบเสียงพูดและกระดิ่งเตือน
+          <p class="text-xs text-slate-400 text-center mb-4">เพิ่มผู้เล่น แล้วกดทดสอบเสียงพูดได้เลย</p>
+
+          <button onclick="testVoice()" class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold rounded-xl text-xs mb-4 shadow-lg flex items-center justify-center gap-2 animate-pulse">
+            🔊 กดเพื่อทดสอบเสียงพูดภาษาไทย
           </button>
 
           <div class="flex gap-2 mb-4">
